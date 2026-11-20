@@ -27,7 +27,7 @@ for index, name in ipairs(constants) do _G[name] = index end
 local state, event
 local function Reset()
     state = { stocks = {}, bonuses = {}, known = true, research = 9, setTraits = 3,
-        motif = 1, recipeKnown = true, upgrade = { 2, 3, 4, 8 }, chapters = {} }
+        motif = 1, recipeKnown = true, upgrade = { 2, 3, 4, 8 }, chapters = {}, messages = {} }
 end
 Reset()
 function GetItemLinkItemId(link) return tonumber(link:match("item:(%d+)")) or 0 end
@@ -93,7 +93,7 @@ LibCharacterKnowledge = {
 }
 LibLazyCrafting = {
     GetItemTemplateIdPatternIndex = function(template)
-        return ({ [52] = 10, [31] = 6, [18] = 2, [24] = 1, [65] = 2, [75] = 2 })[template]
+        return ({ [53] = 1, [52] = 10, [31] = 6, [18] = 2, [24] = 1, [65] = 2, [75] = 2 })[template]
     end,
     functionTable = {
         GetMatRequirements = function(pattern, tier, craft)
@@ -109,8 +109,10 @@ LibLazyCrafting = {
     end,
 }
 function IsItemLinkRecipeKnown() return state.recipeKnown end
-function GetItemLinkRecipeNumTradeskillRequirements() return 1 end
-function GetItemLinkRecipeTradeskillRequirement() return CRAFTING_TYPE_PROVISIONING, 6 end
+function GetItemLinkRecipeNumTradeskillRequirements()
+    return state.recipeRequirements == nil and 1 or state.recipeRequirements
+end
+function GetItemLinkRecipeTradeskillRequirement() return state.recipeCraft or CRAFTING_TYPE_PROVISIONING, 6 end
 function GetItemLinkRecipeQualityRequirement() return 4 end
 function GetItemLinkRecipeResultItemLink() return TamrielToolsWritChecker.ItemLink(68276) end
 function GetItemLinkRecipeNumIngredients() return 2 end
@@ -118,7 +120,7 @@ function GetItemLinkRecipeIngredientInfo(_, index) return "", 0, index end
 function GetItemLinkRecipeIngredientItemLink(_, index) return TamrielToolsWritChecker.ItemLink(82000 + index) end
 
 LibAlchemy = {
-    potionEffectIdToString = { [1] = "A", [2] = "B", [3] = "C" },
+    potionEffectIdToString = { [1] = "A", [2] = "B", [3] = "C", [4] = "D", [5] = "E", [6] = "F" },
     reagents = {
         [101] = { "", 1, { "A", "B" } }, [102] = { "", 1, { "A", "C" } },
         [103] = { "", 1, { "B", "C" } }, [104] = { "", 1, { "A", "B" } },
@@ -223,7 +225,7 @@ function ZO_ScrollList_RefreshVisible(list)
     for _, entry in ipairs(list.rows or {}) do inventoryDataType.setupCallback(entry.row, entry.slot) end
 end
 SLASH_COMMANDS = {}
-function d() end
+function d(text) state.messages[#state.messages + 1] = text end
 dofile("TamrielToolsWritChecker.lua")
 local W = TamrielToolsWritChecker
 
@@ -248,6 +250,35 @@ local function Material(report, id)
 end
 local gauntlets = Writ(52, 188, 5, 43, 9, 14)
 
+local function UnknownCheck(report, label, detail)
+    Equal(report.status, "unknown")
+    for _, check in ipairs(report.checks) do
+        if check.label == label and check.detail == detail then
+            Equal(check.passed, nil)
+            return
+        end
+    end
+    error("Expected unverified check: " .. label .. " / " .. detail)
+end
+
+Test("weapon writs check the exact research line and weapon motif chapter", function()
+    local report = W.Evaluate(Writ(53, 188, 4, 43, 1, 14))
+    Equal(report.status, "ready")
+    Equal(state.lastResearch[2], 1)
+    Equal(state.chapters[1][2], ITEM_STYLE_CHAPTER_AXES)
+    Equal(Material(report, 64489).need, 13)
+end)
+Test("unsupported equipment requirements do not imply readiness or invent materials", function()
+    for _, link in ipairs({
+        Writ(56, 188, 4, 43, 1, 14),
+        Writ(53, 188, 1, 43, 1, 14), Writ(53, 188, 6, 43, 1, 14),
+        Writ(53, 188, 4, 0, 1, 14), Writ(53, 188, 4, 43, 0, 14),
+    }) do
+        local report = W.Evaluate(link)
+        UnknownCheck(report, "Writ data", "Unsupported equipment requirements")
+        Equal(#report.materials, 0)
+    end
+end)
 Test("legendary gauntlets: exact trait, motif chapter and all upgrade steps", function()
     local report = W.Evaluate(gauntlets)
     Equal(report.status, "ready")
@@ -354,6 +385,23 @@ Test("provisioning checks both improvement and quality passives", function()
     state.bonuses[NON_COMBAT_BONUS_PROVISIONING_RARITY_LEVEL] = 3
     Equal(W.Evaluate(Writ(68276)).status, "blocked")
 end)
+Test("missing and foreign recipe skill requirements stay explicitly unverified", function()
+    state.recipeRequirements = 0
+    local report = W.Evaluate(Writ(68276))
+    UnknownCheck(report, "Recipe skills", "Recipe skill requirements unavailable")
+    Equal(Material(report, 82002).need, 4)
+    state.recipeRequirements, state.recipeCraft = 1, CRAFTING_TYPE_BLACKSMITHING
+    report = W.Evaluate(Writ(68276))
+    UnknownCheck(report, "Recipe skills", "Unsupported recipe crafting skill")
+    Equal(Material(report, 82002).need, 4)
+end)
+Test("unsupported glyph quality never produces a ready verdict or rune costs", function()
+    for _, quality in ipairs({ 1, 6 }) do
+        local report = W.Evaluate(Writ(26580, 207, quality))
+        UnknownCheck(report, "Glyph", "Unsupported glyph level or quality")
+        Equal(#report.materials, 0)
+    end
+end)
 Test("enchanting resolves exact runes and aspect rank", function()
     local link = Writ(26580, 207, 5)
     local report = W.Evaluate(link)
@@ -374,6 +422,11 @@ Test("malformed, unsupported and non-writ links never produce ready", function()
     Equal(W.Evaluate(W.ItemLink(2)), nil)
     Equal(W.Evaluate(W.ItemLink(900)).status, "unknown")
     Equal(W.Evaluate(Writ(88888, 123, 4)).status, "unknown")
+    for _, link in ipairs({ Writ("invalid"), Writ(-1), Writ(52.5), Writ(52, 188, 5, 43, 9, -1) }) do
+        local report = W.Evaluate(link)
+        UnknownCheck(report, "Writ data", "Unrecognized sealed writ link")
+        Equal(#report.materials, 0)
+    end
 end)
 Test("duplicate material costs accumulate before stock comparison", function()
     local report = { checks = {}, materials = {}, notes = {} }
@@ -383,6 +436,11 @@ Test("duplicate material costs accumulate before stock comparison", function()
 end)
 
 if not realAlchemy then
+    Test("known alchemy effects without a valid formula remain unverified", function()
+        local report = W.Evaluate(Writ(199, 4, 5, 6))
+        UnknownCheck(report, "Alchemy formula", "No supported three-reagent combination")
+        Equal(#report.materials, 0)
+    end)
     Test("alchemy chooses stocked alternatives and recalculates after stock changes", function()
         state.stocks[101] = 0
         local report = W.Evaluate(Writ(199, 1, 2, 3))
@@ -450,6 +508,13 @@ Test("tooltip hooks preserve original content, avoid nested duplicates and reset
     PopupTooltip:SetLink(Writ(68276))
     assert(PopupTooltip.lastCard ~= card)
     assert(SLASH_COMMANDS["/writchecker"])
+end)
+Test("slash help explains refreshing and the inventory readiness markers", function()
+    SLASH_COMMANDS["/writchecker"]()
+    Equal(#state.messages, 3)
+    assert(state.messages[1]:find("Hover a sealed master writ", 1, true))
+    assert(state.messages[2]:find("Re-hover to refresh", 1, true))
+    assert(state.messages[3]:find("green + ready, red ! cannot craft, grey ? unverified", 1, true))
 end)
 
 local function CardText(card)

@@ -115,10 +115,23 @@ lua .\tests\runtime.lua '..\..\live\AddOns\LibAlchemy'
 ```
 
 The tests load the actual addon, with mocked ESO APIs and tooltip controls.
-They cannot replace an in-game visual/API smoke test. Verify the four
+Regressions include weapon motif chapters, malformed and unsupported equipment
+or glyph requirements, unavailable recipe skills and alchemy formulas, and slash
+help. For dependencies and measured coverage, see the
+[shared setup and coverage guide](../Tamriel-Tools/tools/testing/README.md);
+select `--project Tamriel-Tools-Writ-Checker`.
+
+## In-Game Verification
+
+Automated tests cannot replace an in-game visual/API smoke test. Verify the four
 equipment professions, a provisioning writ, a glyph writ, and alchemy;
 hover a normal item afterward to check cleanup. Check alongside Master
 Merchant with its graph enabled and at your normal UI scale. Confirm the
 Crafting Ledger layout remains intact after `/reloadui`.
 Check inventory markers for ready, blocked, material-short and unsupported
 writs, including after scrolling, filtering, and changing material stocks.
+
+## License
+
+Original addon code is [MIT-licensed](LICENSE). Required libraries retain their
+own licenses and are not bundled.

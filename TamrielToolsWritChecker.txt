@@ -1,0 +1,9 @@
+## Title: Tamriel Tools: Writ Checker
+## Author: Handshot
+## Description: A master writ crafting ledger: skills, research, motifs, recipes and materials, directly in item tooltips.
+## Version: 2026.11.3
+## AddOnVersion: 20261103
+## APIVersion: 101051
+## DependsOn: LibLazyCrafting LibSets LibCharacterKnowledge LibAlchemy
+
+TamrielToolsWritChecker.lua
